@@ -1,16 +1,22 @@
 import sys
 import serial
+import socket
+import time
+import json
 import numpy as np
 from scipy.signal import butter, filtfilt, find_peaks, lfilter, lfilter_zi
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
 
 # --- PARAMETRI STRUMENTALI ---
-PORTA = "COM3"       # INSERISCI LA TUA PORTA (es. COM3 su Windows o /dev/ttyUSB0 su Mac/Linux)
+PORTA_IN = "COM3"       # INSERISCI LA TUA PORTA (es. COM3 su Windows o /dev/ttyUSB0 su Mac/Linux)
 BAUD_RATE = 115200   
-FS = 360            # Frequenza di campionamento in Hz
+FS = 360  # Frequenza di campionamento in Hz
+DT=1/FS          
+N_BATCH=180
 FINESTRA = 1800    #5 secondi di campioni (1800 campioni a 360 Hz)
-
+HOST = '127.0.0.1'
+PORTA_OUT = 65432
 
 def trova_battiti(ecg_filtrato, fs):
     # 1. Definiamo un'altezza minima per considerare un picco valido.
@@ -43,10 +49,24 @@ z_state = lfilter_zi(b, a)
 primo_dato_ricevuto = False # Flag per la calibrazione iniziale
 
 # --- INIZIALIZZAZIONE HARDWARE E MEMORIA ---
-ser = serial.Serial(PORTA, BAUD_RATE)
+ser = serial.Serial(PORTA_IN, BAUD_RATE)
 buffer_dati = np.zeros(FINESTRA)
 asse_x_tempo = np.arange(FINESTRA) / FS  # Array statico per l'asse dei tempi (secondi)
+
 storia_grezza = [] 
+buffer_filtrato_plot = np.zeros(FINESTRA)
+
+# --- SETUP RETE TCP (Client) ---
+buffer_batch = [] # Serbatoio per i 180 campioni
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+try:
+    print(f"[RETE] Connessione al motore neurale su {HOST}:{PORTA_OUT}...")
+    client_socket.connect((HOST, PORTA_OUT))
+    print("[RETE] Connesso con successo.")
+except ConnectionRefusedError:
+    print("[ERRORE CRITICO] Il server analizza.py non è in ascolto!")
+    sys.exit(1) # Meglio fermare tutto se la rete neurale non è pronta
 
 # --- SETUP INTERFACCIA GRAFICA (PyQtGraph) ---
 app = QtWidgets.QApplication(sys.argv)
@@ -107,7 +127,28 @@ def aggiorna_grafico():
             # Filtro causale (lfilter) in streaming. 
             # Prende in ingresso il chunk e lo stato precedente, restituisce chunk filtrato e nuovo stato.
             chunk_filtrato, z_state = lfilter(b, a, chunk, zi=z_state)
+
+# --- NUOVO: LOGICA DI BATCHING E INVIO SOCKET ---
+            # Aggiungiamo i nuovi dati filtrati al serbatoio (li convertiamo in lista per praticità)
+            buffer_batch.extend(chunk_filtrato.tolist())
             
+            # Ciclo while: matematicamente robusto nel caso in cui un blocco ritardi 
+            # e arrivino più di 360 campioni tutti insieme.
+            while len(buffer_batch) >= N_BATCH:
+                # Estraiamo esattamente la finestra temporale richiesta (i primi 180)
+                batch_da_inviare = buffer_batch[:N_BATCH]
+                
+                # Rimuoviamo i dati estratti dal serbatoio (FIFO)
+                del buffer_batch[:N_BATCH] 
+                
+                # Serializziamo il tensore e inviamolo alla rete neurale
+                try:
+                    pacchetto = (json.dumps(batch_da_inviare) + '\n').encode('utf-8')
+                    client_socket.sendall(pacchetto)
+                except Exception as e:
+                    print(f"[RETE] Errore di invio socket: {e}")
+            # ------------------------------------------------
+
             # 3. Aggiornamento del buffer circolare per il plotting
             n_nuovi = len(chunk_filtrato)
             if n_nuovi >= FINESTRA:
@@ -153,7 +194,8 @@ try:
 finally:
     timer.stop()
     ser.close()
-    print("Acquisizione terminata. Porta seriale rilasciata.")
+    client_socket.close() # <-- CHIUSURA DEL SOCKET
+    print("Acquisizione terminata. Porta seriale e socket rilasciati.")
     
     # Salvataggio dati post-processing
     array_grezzo = np.array(storia_grezza)
