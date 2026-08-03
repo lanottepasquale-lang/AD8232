@@ -1,7 +1,26 @@
 import sys
 import uselect
 import time
+import network
+import bluetooth
 from machine import Pin,ADC, Timer, PWM
+
+# --- 1. SPEGNIMENTO DEL WI-FI ---
+wlan_sta = network.WLAN(network.STA_IF)
+wlan_sta.active(False)
+
+# Disabilita l'interfaccia Access Point (Hotspot)
+wlan_ap = network.WLAN(network.AP_IF)
+wlan_ap.active(False)
+
+# --- 2. SPEGNIMENTO DEL BLUETOOTH ---
+try:
+    ble = bluetooth.BLE()
+    ble.active(False)
+except Exception as e:
+    pass
+
+print("Moduli RF (Wi-Fi e Bluetooth) disattivati. Ambiente pulito per l'ECG.")
 
 led_rosso=Pin(14, Pin.OUT)
 led_giallo=Pin(27, Pin.OUT)
