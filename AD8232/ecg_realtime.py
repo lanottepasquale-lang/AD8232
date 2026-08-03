@@ -1,15 +1,15 @@
 import sys
 import serial
 import numpy as np
-from scipy.signal import butter, filtfilt,find_peaks
+from scipy.signal import butter, filtfilt, find_peaks, lfilter, lfilter_zi
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
 
 # --- PARAMETRI STRUMENTALI ---
 PORTA = "COM3"       # INSERISCI LA TUA PORTA (es. COM3 su Windows o /dev/ttyUSB0 su Mac/Linux)
 BAUD_RATE = 115200   
-FS = 200             # Frequenza di campionamento in Hz
-FINESTRA = 1000      #5 secondi di campioni (1000 campioni a 200 Hz)
+FS = 360            # Frequenza di campionamento in Hz
+FINESTRA = 1800    #5 secondi di campioni (1800 campioni a 360 Hz)
 
 
 def trova_battiti(ecg_filtrato, fs):
@@ -37,6 +37,10 @@ def progetta_filtro(lowcut, highcut, fs, order=4):
     return b, a
 
 b, a = progetta_filtro(0.5, 40.0, FS)
+
+# --- INIZIALIZZAZIONE DELLO STATO DEL FILTRO ---
+z_state = lfilter_zi(b, a)
+primo_dato_ricevuto = False # Flag per la calibrazione iniziale
 
 # --- INIZIALIZZAZIONE HARDWARE E MEMORIA ---
 ser = serial.Serial(PORTA, BAUD_RATE)
@@ -78,53 +82,63 @@ curva = plot.plot(pen=pg.mkPen('g', width=1.5)) # Tracciato verde
 
 # --- MOTORE DI AGGIORNAMENTO E CONTROLLO ---
 def aggiorna_grafico():
-    global buffer_dati, storia_grezza
+    global buffer_filtrato_plot, storia_grezza, z_state, primo_dato_ricevuto
     
     try:
-        # Svuota il buffer fisico e aggiorna la memoria RAM
+        nuovi_dati = []
+        # 1. Svuotamento rapido del buffer seriale
         while ser.in_waiting > 0:
             dato_grezzo = ser.readline().decode('utf-8').strip()
-            
             if dato_grezzo:
                 valore = int(dato_grezzo)
+                nuovi_dati.append(valore)
                 storia_grezza.append(valore)
-                
-                buffer_dati[:-1] = buffer_dati[1:]
-                buffer_dati[-1] = valore
-                
-# Calcolo matematico del filtro
-        buffer_filtrato = filtfilt(b, a, buffer_dati)
-
-        # Analisi dei picchi (la topologia vettoriale)
-        picchi = trova_battiti(buffer_filtrato, FS)
         
-        # Validazione statistica: calcoliamo i BPM solo se abbiamo almeno 2 picchi
-        if len(picchi) >= 2:
-            distanza_intervalli = np.diff(picchi) / FS  
+        # 2. Elaborazione matematica del chunk (se ci sono nuovi dati)
+        if nuovi_dati:
+            chunk = np.array(nuovi_dati)
             
-            # Per la telemetria real-time, isoliamo l'intervallo più recente 
-            # (l'ultimo elemento dell'array) per avere una latenza minima
-            ultimo_intervallo = distanza_intervalli[-1]
-            bpm_attuale = int(60 / ultimo_intervallo) # Cast forzato a intero!
+            # Calibrazione dello stato iniziale al primissimo campione 
+            # per azzerare il transiente di accensione del filtro IIR.
+            if not primo_dato_ricevuto:
+                z_state = z_state * chunk[0]
+                primo_dato_ricevuto = True
             
-            # Valutazione clinica dell'anomalia sul battito corrente
-            anomalia = False
-            if ultimo_intervallo >= 1.2 or ultimo_intervallo < 0.4 or bpm_attuale < 40 or bpm_attuale > 100:
-                anomalia = True
+            # Filtro causale (lfilter) in streaming. 
+            # Prende in ingresso il chunk e lo stato precedente, restituisce chunk filtrato e nuovo stato.
+            chunk_filtrato, z_state = lfilter(b, a, chunk, zi=z_state)
+            
+            # 3. Aggiornamento del buffer circolare per il plotting
+            n_nuovi = len(chunk_filtrato)
+            if n_nuovi >= FINESTRA:
+                # Caso limite: sono arrivati più dati della dimensione della finestra
+                buffer_filtrato_plot = chunk_filtrato[-FINESTRA:]
+            else:
+                # Shift a sinistra e inserimento in coda (FIFO)
+                buffer_filtrato_plot[:-n_nuovi] = buffer_filtrato_plot[n_nuovi:]
+                buffer_filtrato_plot[-n_nuovi:] = chunk_filtrato
+            
+            # --- ANALISI E TELEMETRIA SUL SEGNALE STABILE ---
+            picchi = trova_battiti(buffer_filtrato_plot, FS)
+            
+            if len(picchi) >= 2:
+                distanza_intervalli = np.diff(picchi) / FS  
+                ultimo_intervallo = distanza_intervalli[-1]
+                bpm_attuale = int(60 / ultimo_intervallo)
                 
-            # Compilazione e invio di un singolo pacchetto CSV pulito
-            comando = f"{bpm_attuale},{int(anomalia)}\n"
-            ser.write(comando.encode('utf-8'))
-            
-        else:
-            # Condizione di sicurezza: segnale piatto, artefatti o elettrodi staccati.
-            # Invio del segnale di silenziamento all'ESP32.
-            comando = "0,0\n"
-            ser.write(comando.encode('utf-8'))
+                anomalia = False
+                if ultimo_intervallo >= 1.2 or ultimo_intervallo < 0.4 or bpm_attuale < 40 or bpm_attuale > 100:
+                    anomalia = True
+                    
+                comando = f"{bpm_attuale},{int(anomalia)}\n"
+                ser.write(comando.encode('utf-8'))
+            else:
+                comando = "0,0\n"
+                ser.write(comando.encode('utf-8'))
 
-        # Rendering grafico accelerato
-        curva.setData(x=asse_x_tempo, y=buffer_filtrato)
-        
+            # 4. Rendering grafico dell'array filtrato aggiornato
+            curva.setData(x=asse_x_tempo, y=buffer_filtrato_plot)
+            
     except ValueError:
         pass
 

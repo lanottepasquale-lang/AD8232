@@ -34,8 +34,8 @@ def leggi_e_invia(timer):
 # 4. Inizializzazione del Timer Hardware (Timer 0)
 timer_campionamento = Timer(0)
 
-# 5. Avvia il timer: freq=200 significa 200 Hz (200 campioni al secondo)
-timer_campionamento.init(freq=200, mode=Timer.PERIODIC, callback=leggi_e_invia)
+# 5. Avvia il timer: freq=360 significa 360 Hz (360 campioni al secondo)
+timer_campionamento.init(freq=360, mode=Timer.PERIODIC, callback=leggi_e_invia)
 
 
 # --- SETUP RICEZIONE SERIALE ---
