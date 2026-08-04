@@ -1,8 +1,0 @@
-wfdb
-numpy
-scipy
-scikit-learn
-imbalanced-learn
-tensorflow
-matplotlib
-joblib
