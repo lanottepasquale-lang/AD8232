@@ -100,9 +100,26 @@ asse_y.setTicks([ticks_y_major, ticks_y_minor])
 plot.showGrid(x=True, y=True, alpha=0.4)
 curva = plot.plot(pen=pg.mkPen('g', width=1.5)) # Tracciato verde
 
+# Creiamo il testo iniziale in verde (formato RGB) e ancoriamo l'angolo in alto a sinistra
+testo_bpm = pg.TextItem(text="BPM: --", color=(0, 255, 0), anchor=(0, 0))
+
+# Impostiamo il font per renderlo più leggibile (opzionale ma consigliato)
+font = testo_bpm.textItem.font()
+font.setPointSize(14)
+font.setBold(True)
+testo_bpm.setFont(font)
+
+# Posizionamento: coordinate basate sui tuoi assi (Tempo, Ampiezza)
+# Avendo i ticks Y fino a 1500, lo posizioniamo in alto.
+# Regola l'ascissa (es. 0.1) in base a dove vuoi che appaia sull'asse dei tempi.
+testo_bpm.setPos(0.1, 1400) 
+
+# Aggiungiamo l'oggetto vettoriale al grafico
+plot.addItem(testo_bpm)
+
 # --- MOTORE DI AGGIORNAMENTO E CONTROLLO ---
 def aggiorna_grafico():
-    global buffer_filtrato_plot, storia_grezza, z_state, primo_dato_ricevuto
+    global buffer_filtrato_plot, storia_grezza, z_state, primo_dato_ricevuto, testo_bpm
     
     try:
         nuovi_dati = []
@@ -173,9 +190,20 @@ def aggiorna_grafico():
                     
                 comando = f"{bpm_attuale},{int(anomalia)}\n"
                 ser.write(comando.encode('utf-8'))
+
+                testo_bpm.setText(f"BPM: {bpm_attuale}")
+
+                if anomalia:
+                    testo_bpm.setColor((255, 0, 0))  # Rosso in caso di anomalia (tachicardia/bradicardia/artefatti)
+                else:
+                    testo_bpm.setColor((0, 255, 0))  # Verde se il battito è fisiologico
+
             else:
                 comando = "0,0\n"
                 ser.write(comando.encode('utf-8'))
+
+                testo_bpm.setText("BPM: --")
+                testo_bpm.setColor((0, 255, 0))
 
             # 4. Rendering grafico dell'array filtrato aggiornato
             curva.setData(x=asse_x_tempo, y=buffer_filtrato_plot)
