@@ -216,7 +216,7 @@ timer.timeout.connect(aggiorna)
 timer.start(20)
 
 try:
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 finally:
     timer.stop()
     if client_conn is not None:
