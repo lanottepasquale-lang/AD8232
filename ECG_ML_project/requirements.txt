@@ -6,3 +6,5 @@ imbalanced-learn
 tensorflow
 matplotlib
 joblib
+pyqtgraph
+PyQt5

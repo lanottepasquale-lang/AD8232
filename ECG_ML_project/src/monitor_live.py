@@ -131,13 +131,13 @@ def aggiorna():
             return  # nessun client ancora in connessione, normale
 
     # 2. Legge tutti i byte disponibili in questo istante, senza bloccare.
+    connessione_chiusa = False
     try:
         while True:
             chunk = client_conn.recv(65536)
             if not chunk:
-                print("ecg_realtime.py ha chiuso la connessione.")
-                client_conn = None
-                return
+                connessione_chiusa = True
+                break
             recv_buffer += chunk
     except BlockingIOError:
         pass  # nessun altro dato pendente in questo istante, e' normale
@@ -156,6 +156,13 @@ def aggiorna():
             nuovi_valori.extend(json.loads(linea.decode('utf-8')))
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue  # pacchetto corrotto/troncato, scartato
+
+    if connessione_chiusa:
+        print("ecg_realtime.py ha chiuso la connessione.")
+        client_conn = None
+        # NB: non un return anticipato - nuovi_valori potrebbe gia'
+        # contenere l'ultimo batch, arrivato per intero proprio
+        # nell'ultima recv() prima dell'EOF: va comunque analizzato.
 
     if not nuovi_valori:
         return
