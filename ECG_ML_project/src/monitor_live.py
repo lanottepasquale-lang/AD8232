@@ -3,12 +3,13 @@ import socket
 import json
 import numpy as np
 import pyqtgraph as pg
+import pyqtgraph.exporters
 from pyqtgraph.Qt import QtCore, QtWidgets
 
 sys.path.insert(0, 'src')
 from config import FS, ANALYZER_HOST, ANALYZER_PORT
 from inference import (RealTimeQRSDetector, AnomalyAnalyzer, SessionLogger,
-                        BEAT_INFO, RHYTHM_INFO, EVENT_DESCRIPTIONS,
+                        BEAT_INFO, BEAT_COLORS, RHYTHM_INFO, EVENT_DESCRIPTIONS,
                         check_signal_quality, check_lead_off)
 
 FINESTRA_SECONDI = 5
@@ -25,27 +26,53 @@ FINESTRA = FINESTRA_SECONDI * FS
 # volta sola da lui con z_state).
 
 
-def gestisci_risultato(result, t_now, logger, curva_anomalie_x, curva_anomalie_y,
-                        curva_anomalie_colori, state):
+def gestisci_risultato(result, t_now, logger, state):
     """Equivalente di handle_result in inference.py, ma per PyQtGraph
-    invece di matplotlib: stampa/logga allo stesso modo, ma non disegna
-    su un Axes (handle_result non e' riusabile qui per quel motivo)."""
+    invece di matplotlib. Oltre a stampare/loggare, ora popola le stesse
+    informazioni visive dell'originale: pallino colorato per tipo di
+    battito (BEAT_COLORS) posizionato sulla vera ampiezza del picco,
+    triangoli per le onde P/T, linee verticali tratteggiate per gli
+    eventi - tutto accumulato in state['...'] e disegnato in aggiorna()."""
     if result is None:
         return
 
+    t = result['peak_idx'] / FS if result['peak_idx'] is not None else t_now
+
     if result['beat']:
-        peak_idx, (label, conf) = result['beat']
+        peak_idx, (label, conf) = result['peak_idx'], result['beat']
         desc, is_anomaly = BEAT_INFO.get(label, (label, True))
         state['beat_total_count'] += 1
         if is_anomaly:
             state['beat_anomaly_count'] += 1
         tag = "[ANOMALIA]" if is_anomaly else ""
-        print(f"t={t_now:6.1f}s  battito: {label} - {desc}  {tag}  confidenza {conf:.2f}")
-        logger.log(t_now, 'beat', label, f"{conf:.2f}", desc)
-        if is_anomaly:
-            curva_anomalie_x.append(t_now)
-            curva_anomalie_y.append(state['ultimo_valore_filtrato'])
-            curva_anomalie_colori.append('r')
+        print(f"t={t:6.1f}s  battito: {label} - {desc}  {tag}  confidenza {conf:.2f}")
+        logger.log(t, 'beat', label, f"{conf:.2f}", desc)
+
+        # Pallino sul picco R, colorato per tipo di battito - stessa
+        # logica e stessa palette di inference.py (BEAT_COLORS), posizionato
+        # sulla vera ampiezza del segnale nel punto del picco (non un valore
+        # approssimato come nella versione precedente di questo file).
+        state['beat_x'].append(t)
+        state['beat_y'].append(state['buffer_dati'][peak_idx])
+        state['beat_color'].append(BEAT_COLORS.get(label, 'blue'))
+
+        # --- Onde P e T, indipendenti dagli allarmi (stessa logica di
+        # inference.py: P = triangolo giu' azzurro, T = triangolo su verde) ---
+        pqt = result.get('pqt')
+        if pqt:
+            p_str = f"P a {pqt['pr_ms']:.0f}ms prima" if pqt['p_peak'] is not None else "P non rilevata"
+            t_str = f"T a {pqt['rt_ms']:.0f}ms dopo (RTc {pqt['rtc_ms']:.0f}ms)" if pqt['t_peak'] is not None else "T non rilevata"
+            print(f"         {p_str}  |  {t_str}")
+            logger.log(t, 'pqt',
+                       f"PR={pqt['pr_ms']:.0f}" if pqt['pr_ms'] is not None else "PR=nd",
+                       f"RTc={pqt['rtc_ms']:.0f}" if pqt['rtc_ms'] is not None else "RTc=nd",
+                       f"beat_t={t:.2f}")
+            if pqt['p_peak'] is not None:
+                state['p_x'].append(pqt['p_peak'] / FS)
+                state['p_y'].append(state['buffer_dati'][pqt['p_peak']])
+            if pqt['t_peak'] is not None:
+                state['t_x'].append(pqt['t_peak'] / FS)
+                state['t_y'].append(state['buffer_dati'][pqt['t_peak']])
 
     for event_name, value, extra in result['events']:
         if event_name.startswith('inizio_') or event_name.startswith('fine_'):
@@ -55,20 +82,23 @@ def gestisci_risultato(result, t_now, logger, curva_anomalie_x, curva_anomalie_y
                 valore_str = f"{value:.0f} bpm"
             else:
                 valore_str = f"{value:.0f}" if value is not None else ''
-            print(f"t={t_now:6.1f}s  [{stato.upper()} {azione.upper()}]  {valore_str}  ({extra})")
-            logger.log(t_now, 'event', event_name, valore_str, extra)
+            print(f"t={t:6.1f}s  [{stato.upper()} {azione.upper()}]  {valore_str}  ({extra})")
+            logger.log(t, 'event', event_name, valore_str, extra)
+            if stato == 'inizio':
+                state['event_lines'].append(t)
         else:
             desc = EVENT_DESCRIPTIONS.get(event_name, event_name)
-            print(f"t={t_now:6.1f}s  {desc}  [ANOMALIA]")
-            logger.log(t_now, 'event', event_name, '', desc)
+            print(f"t={t:6.1f}s  {desc}  [ANOMALIA]")
+            logger.log(t, 'event', event_name, '', desc)
+            state['event_lines'].append(t)
 
     if result['rhythm']:
         rhythm_label, rhythm_conf = result['rhythm']
         if rhythm_label != state['current_rhythm']:
             state['current_rhythm'] = rhythm_label
             nome = RHYTHM_INFO.get(rhythm_label, rhythm_label)
-            print(f"t={t_now:6.1f}s  ritmo: {nome}  [CAMBIO RITMO]")
-            logger.log(t_now, 'rhythm', rhythm_label,
+            print(f"t={t:6.1f}s  ritmo: {nome}  [CAMBIO RITMO]")
+            logger.log(t, 'rhythm', rhythm_label,
                        f"{rhythm_conf:.2f}" if rhythm_conf else '', nome)
 
 
@@ -98,22 +128,51 @@ state = {
     'current_rhythm': 'N', 'current_rate_state': 'normale',
     'quality_alert': False, 'lead_off_alert': False,
     'ultimo_valore_filtrato': 0,
+    'buffer_dati': buffer_dati,  # riferimento allo stesso buffer, comodo per leggere l'ampiezza vera nei marker
+    # Marker per il grafico (equivalenti a scatter_x/y/c di inference.py,
+    # ma con liste separate per battiti/P/T invece di un unico scatter,
+    # perche' PyQtGraph gestisce simboli diversi con ScatterPlotItem diversi)
+    'beat_x': [], 'beat_y': [], 'beat_color': [],
+    'p_x': [], 'p_y': [],
+    't_x': [], 't_y': [],
+    'event_lines': [],  # tempi (secondi) in cui disegnare una linea verticale tratteggiata
 }
-anomalie_x, anomalie_y, anomalie_colori = [], [], []
 
 # --- UI PyQtGraph ---
+# --- UI PyQtGraph, stessa palette visiva di inference.py (sfondo chiaro,
+# traccia steelblue, marker colorati per tipo di battito + triangoli P/T) ---
 app = QtWidgets.QApplication(sys.argv)
 win = pg.GraphicsLayoutWidget(show=True, title="ECG Monitor - live")
 win.resize(1000, 600)
-win.setBackground('k')
+win.setBackground('w')
 
 plot = win.addPlot(title="ECG live")
 plot.setLabel('left', 'Ampiezza filtrata')
 plot.setLabel('bottom', 'Tempo', units='s')
-plot.showGrid(x=True, y=True, alpha=0.4)
-curva = plot.plot(pen=pg.mkPen('g', width=1.5))
-marker_anomalie = pg.ScatterPlotItem(size=10, brush='r')
-plot.addItem(marker_anomalie)
+plot.showGrid(x=False, y=False)
+curva = plot.plot(pen=pg.mkPen('steelblue', width=1))
+
+# Pallini sui picchi R, colore per tipo di battito (BEAT_COLORS): stesso
+# ruolo dello scatter unico in inference.py, ma qui il colore viene passato
+# per-punto ad ogni setData() invece di un'unica proprieta' fissa.
+marker_battiti = pg.ScatterPlotItem(size=10, symbol='o', pen=pg.mkPen('k', width=0.5))
+plot.addItem(marker_battiti)
+
+# Triangolo giu' azzurro = onda P (verificato visivamente con un render di
+# prova: il simbolo 't' rende verso il basso in PyQtGraph, non verso l'alto
+# come suggerirebbero le coordinate del path lette in isolamento - Qt
+# inverte l'asse Y tra spazio del simbolo e spazio schermo)
+marker_p = pg.ScatterPlotItem(size=9, symbol='t', brush=pg.mkBrush('deepskyblue'), pen=pg.mkPen(None))
+plot.addItem(marker_p)
+
+# Triangolo su verde = onda T (simbolo 't1', verificato visivamente)
+marker_t = pg.ScatterPlotItem(size=9, symbol='t1', brush=pg.mkBrush('seagreen'), pen=pg.mkPen(None))
+plot.addItem(marker_t)
+
+# Linee verticali tratteggiate per eventi (tachi/bradi/pausa/pattern/pvc):
+# gestite come oggetti InfiniteLine aggiunti/rimossi dinamicamente perche',
+# a differenza degli scatter, non esiste un unico "setData" per piu' linee.
+event_line_items = {}  # mappa t (secondi) -> oggetto InfiniteLine gia' sul plot
 
 
 def aggiorna():
@@ -196,18 +255,51 @@ def aggiorna():
             # segnale sintetico) - bug preesistente, non introdotto dal
             # passaggio al canale TCP.
             result = analyzer.new_peak(p_absolute, buffer_dati)
-            gestisci_risultato(result, t_now, logger, anomalie_x, anomalie_y, anomalie_colori, state)
+            gestisci_risultato(result, t_now, logger, state)
 
     visibile = buffer_dati[-FINESTRA:]
     asse_tempo = (np.arange(len(visibile)) + max(0, len(buffer_dati) - FINESTRA)) / FS
     curva.setData(x=asse_tempo, y=visibile)
 
     t_min = max(0, t_now - FINESTRA_SECONDI)
-    marker_x = [x for x in anomalie_x if x >= t_min]
-    marker_y = [y for x, y in zip(anomalie_x, anomalie_y) if x >= t_min]
-    marker_anomalie.setData(x=marker_x, y=marker_y)
 
-    plot.setTitle(f"ritmo: {state['current_rhythm']}  |  frequenza: {state['current_rate_state']}  |  "
+    # Vista filtrata alla sola finestra visibile, SENZA modificare le liste
+    # in state: quelle restano complete per tutta la sessione, cosi' a fine
+    # programma si puo' esportare il grafico dell'intera sessione, non solo
+    # dell'ultima finestra mostrata a schermo.
+    def _finestra(xs, *altre):
+        i = 0
+        while i < len(xs) and xs[i] < t_min:
+            i += 1
+        if i == 0:
+            return (xs,) + altre
+        return (xs[i:],) + tuple(l[i:] for l in altre)
+
+    bx, by, bc = _finestra(state['beat_x'], state['beat_y'], state['beat_color'])
+    marker_battiti.setData(x=bx, y=by, brush=[pg.mkBrush(c) for c in bc])
+
+    px, py = _finestra(state['p_x'], state['p_y'])
+    marker_p.setData(x=px, y=py)
+
+    tx, ty = _finestra(state['t_x'], state['t_y'])
+    marker_t.setData(x=tx, y=ty)
+
+    # Linee evento: rimuovi quelle uscite dalla finestra, aggiungi le nuove
+    # tra quelle visibili ora (state['event_lines'] resta comunque completo)
+    eventi_visibili = [t for t in state['event_lines'] if t >= t_min]
+    for t_evento in list(event_line_items.keys()):
+        if t_evento < t_min:
+            plot.removeItem(event_line_items.pop(t_evento))
+    for t_evento in eventi_visibili:
+        if t_evento not in event_line_items:
+            linea = pg.InfiniteLine(
+                pos=t_evento, angle=90,
+                pen=pg.mkPen('darkred', width=1, style=QtCore.Qt.DashLine))
+            plot.addItem(linea)
+            event_line_items[t_evento] = linea
+
+    plot.setTitle(f"Monitoraggio ECG live  |  ritmo: {state['current_rhythm']}  |  "
+                  f"frequenza: {state['current_rate_state']}  |  "
                   f"anomalie: {state['beat_anomaly_count']}/{state['beat_total_count']}")
 
 
@@ -222,5 +314,48 @@ finally:
     if client_conn is not None:
         client_conn.close()
     server_socket.close()
+
+    # Salva un'immagine dell'INTERA sessione (tutto il segnale + tutti i
+    # marker accumulati, non solo l'ultima finestra da FINESTRA_SECONDI
+    # mostrata a schermo), con lo stesso timestamp del log CSV cosi' i due
+    # file restano abbinati e facili da ritrovare insieme.
+    try:
+        if buffer_dati:
+            curva.setData(x=np.arange(len(buffer_dati)) / FS, y=buffer_dati)
+            marker_battiti.setData(
+                x=state['beat_x'], y=state['beat_y'],
+                brush=[pg.mkBrush(c) for c in state['beat_color']])
+            marker_p.setData(x=state['p_x'], y=state['p_y'])
+            marker_t.setData(x=state['t_x'], y=state['t_y'])
+
+            for t_evento in list(event_line_items.keys()):
+                plot.removeItem(event_line_items.pop(t_evento))
+            for t_evento in state['event_lines']:
+                linea = pg.InfiniteLine(
+                    pos=t_evento, angle=90,
+                    pen=pg.mkPen('darkred', width=1, style=QtCore.Qt.DashLine))
+                plot.addItem(linea)
+
+            plot.setTitle(f"Monitoraggio ECG live (sessione completa)  |  "
+                          f"ritmo: {state['current_rhythm']}  |  "
+                          f"frequenza: {state['current_rate_state']}  |  "
+                          f"anomalie: {state['beat_anomaly_count']}/{state['beat_total_count']}")
+            plot.enableAutoRange()
+            app.processEvents()  # forza il ridisegno prima di catturare l'immagine
+
+            # Stesso nome/timestamp del log, solo prefisso e estensione diversi
+            plot_path = logger.path.replace('ecg_log_', 'ecg_plot_').replace('.csv', '.png')
+            esportatore = pg.exporters.ImageExporter(plot)
+            # NOTA: per sessioni molto lunghe (ore), l'intero segnale viene
+            # comunque compresso in una sola immagine di larghezza fissa -
+            # resta tecnicamente completo (tutti i battiti/marker ci sono),
+            # ma visivamente illeggibile a occhio nudo senza zoomare molto
+            # sul file salvato. Per sessioni di qualche minuto va bene cosi'.
+            esportatore.parameters()['width'] = max(2000, len(buffer_dati) // FS * 40)
+            esportatore.export(plot_path)
+            print(f"Plot completo della sessione salvato in: {plot_path}")
+    except Exception as e:
+        print(f"Impossibile salvare il plot completo della sessione: {e}")
+
     logger.close()
     print(f"Log salvato in: {logger.path}")
