@@ -30,11 +30,11 @@ ds1_counts = count_symbols(DS1)
 for rec, c in ds1_counts.items():
     print(f"  {rec}: {c}")
 if not ds1_counts:
-    print("  (nessun record con L o R)")
+    print("  (no record with L or R)")
 
 print("\n--- DS2 (test) ---")
 ds2_counts = count_symbols(DS2)
 for rec, c in ds2_counts.items():
     print(f"  {rec}: {c}")
 if not ds2_counts:
-    print("  (nessun record con L o R)")
+    print("  (no record with L or R)")
