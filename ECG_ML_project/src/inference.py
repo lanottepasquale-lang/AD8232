@@ -68,7 +68,7 @@ class SessionLogger:
         self.file.close()
 
 
-def causal_bandpass(sig, fs=360, low=0.5, high=40):
+def causal_bandpass(sig, fs=360, low=0.67, high=40):
     b, a = butter(4, [low / (fs / 2), high / (fs / 2)], btype='band')
     return lfilter(b, a, sig)
 
@@ -465,7 +465,7 @@ class AnomalyAnalyzer:
 
         if t_end > t_start:
             window = wideband_signal[t_start:t_end]
-            if len(window) > 0 and np.max(window) > T_MIN_AMPLITUDE:
+            if len(window) > 0 and np.max(window) > T_MIN_AMPLITUDE_FRACTION * abs(wideband_signal[peak]):
                 t_offset = int(np.argmax(window))
                 t_peak = t_start + t_offset
                 result['t_peak'] = t_peak
@@ -484,7 +484,7 @@ class AnomalyAnalyzer:
             p_start = max(0, p_start)
             if p_end > p_start and p_end > 0:
                 window = wideband_signal[p_start:p_end]
-                if len(window) > 0 and np.max(window) > P_MIN_AMPLITUDE:
+                if len(window) > 0 and np.max(window) > P_MIN_AMPLITUDE_FRACTION * abs(wideband_signal[peak]):
                     p_offset = int(np.argmax(window))
                     p_peak = p_start + p_offset
                     result['p_peak'] = p_peak
