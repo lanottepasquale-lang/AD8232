@@ -46,4 +46,16 @@ else:
 segments = df[df['event_type'] == 'segment']
 if len(segments) > 0:
     print("\n--- Segmenti del tour (se presenti) ---")
+    print(segments[['t_sec', 'label', 'detail']].to_string(index=False))# %%
+print("\n--- Episodi di ritmo (cambi AFib/normale/incerto) ---")
+rhythm = df[df['event_type'] == 'rhythm']
+if len(rhythm) > 0:
+    print(rhythm[['t_sec', 'label', 'confidence']].to_string(index=False))
+else:
+    print("Nessuno")
+
+# %%
+segments = df[df['event_type'] == 'segment']
+if len(segments) > 0:
+    print("\n--- Segmenti del tour (se presenti) ---")
     print(segments[['t_sec', 'label', 'detail']].to_string(index=False))
