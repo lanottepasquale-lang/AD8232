@@ -44,7 +44,7 @@ def progetta_filtro_sos(lowcut, highcut, fs, order=4):
     sos = butter(order, [low, high], btype='band', output='sos')
     return sos
 
-sos = progetta_filtro_sos(0.5, 40.0, FS)
+sos = progetta_filtro_sos(0.67, 40.0, FS)
 
 # --- INIZIALIZZAZIONE DELLO STATO DEL FILTRO ---
 z_state = sosfilt_zi(sos)
@@ -84,7 +84,7 @@ plot.setLabel('bottom', 'Tempo', units='s')
 # dopo la correzione di scala (FATTORE_CORREZIONE_SCALA). Valore di
 # partenza plausibile: verificare con un print di min/max sui primi
 # secondi di acquisizione reale e regolare se necessario.
-plot.setYRange(-500, 500)
+plot.setYRange(-201, 200)
 plot.setXRange(0, FINESTRA / FS)
 plot.getAxis('bottom').setPen('w')
 plot.getAxis('left').setPen('w')
@@ -97,9 +97,9 @@ ticks_x_major = [(x, str(round(x, 1))) for x in np.arange(0, durata_totale + 0.1
 ticks_x_minor = [(x, '') for x in np.arange(0, durata_totale + 0.1, 0.04)]
 asse_x.setTicks([ticks_x_major, ticks_x_minor])
 
-# MODIFICA: tick coerenti con il nuovo range ±500
-ticks_y_major = [(y, str(y)) for y in np.arange(-150, 150, 25)]
-ticks_y_minor = [(y, '') for y in np.arange(-150, 150, 5)]
+# MODIFICA: tick coerenti con il nuovo range ±200
+ticks_y_major = [(y, str(y)) for y in np.arange(-201, 200, 20)]
+ticks_y_minor = [(y, '') for y in np.arange(-201, 200, 4)]
 asse_y.setTicks([ticks_y_major, ticks_y_minor])
 
 plot.showGrid(x=True, y=True, alpha=0.4)
@@ -112,7 +112,7 @@ font.setBold(True)
 testo_bpm.setFont(font)
 # MODIFICA: posizione verticale del testo BPM riportata dentro al
 # nuovo range visibile (prima era 1400, fuori scala col nuovo ±500)
-testo_bpm.setPos(0.1, 450)
+testo_bpm.setPos(0.1, 150)
 plot.addItem(testo_bpm)
 
 # --- MOTORE DI AGGIORNAMENTO ---
