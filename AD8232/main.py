@@ -29,9 +29,9 @@ led_rosso.value(0) #spento all' inizio
 led_giallo.value(0) #spento all' inizio
 led_verde.value(0) #spento all' inizio
 
-#buzzer=PWM(25)
-#buzzer.freq(5000)
-#buzzer.duty(0)
+buzzer=PWM(25)
+buzzer.freq(5000)
+buzzer.duty(0)
 
 sensore_ecg = ADC(Pin(34))
 sensore_ecg.init(atten=ADC.ATTN_11DB)
@@ -50,7 +50,7 @@ def leggi_e_invia(timer):
         # Legge il valore (0-4095) e lo stampa sulla porta seriale (USB)
         led_giallo.value(0) # Spegne il LED giallo quando il segnale è valido
         #buzzer.duty(0) # Spegne il buzzer quando il segnale è valido
-        valore = sensore_ecg.read_u16()
+        valore = sensore_ecg.read()
         print(valore)
 
 # 4. Inizializzazione del Timer Hardware (Timer 0)
