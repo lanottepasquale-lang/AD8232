@@ -29,9 +29,9 @@ led_rosso.value(0) #spento all' inizio
 led_giallo.value(0) #spento all' inizio
 led_verde.value(0) #spento all' inizio
 
-buzzer=PWM(25)
-buzzer.freq(1000)
-buzzer.duty(0)
+#buzzer=PWM(25)
+#buzzer.freq(5000)
+#buzzer.duty(0)
 
 sensore_ecg = ADC(Pin(34))
 sensore_ecg.init(atten=ADC.ATTN_11DB)
@@ -44,9 +44,12 @@ def leggi_e_invia(timer):
     if lo_p.value() == 1 or lo_m.value() == 1:      
         # Se il segnale è fuori range, invia un valore speciale (0)
         led_giallo.value(1) # Accende il LED giallo per indicare che gli elettrodi sono staccati
+        #buzzer.duty(512) # Accende il buzzer per indicare che gli elettrodi sono staccati
         print(0)
     else:
         # Legge il valore (0-4095) e lo stampa sulla porta seriale (USB)
+        led_giallo.value(0) # Spegne il LED giallo quando il segnale è valido
+        #buzzer.duty(0) # Spegne il buzzer quando il segnale è valido
         valore = sensore_ecg.read_u16()
         print(valore)
 
@@ -106,14 +109,14 @@ while True:
                 led_rosso.value(stato_led_rosso)
                 stato_led_verde = 0 
                 led_verde.value(stato_led_verde) # Spegne il LED verde quando il rosso è acceso
-                buzzer.duty(512*stato_led_rosso) # Accende il buzzer solo quando il LED è acceso
+                #buzzer.duty(512*stato_led_rosso) # Accende il buzzer solo quando il LED è acceso
 
             else:
                 stato_led_verde = not stato_led_verde
                 led_verde.value(stato_led_verde)
                 stato_led_rosso = 0
                 led_rosso.value(stato_led_rosso) # Spegne il LED rosso quando il verde è acceso
-                buzzer.duty(512*stato_led_verde) # Accende il buzzer solo quando il LED è acceso
+                #buzzer.duty(512*stato_led_verde) # Accende il buzzer solo quando il LED è acceso
 
 
             #Aggiorna il cronometro
