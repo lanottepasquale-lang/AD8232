@@ -84,7 +84,7 @@ plot.setLabel('bottom', 'Tempo', units='s')
 # dopo la correzione di scala (FATTORE_CORREZIONE_SCALA). Valore di
 # partenza plausibile: verificare con un print di min/max sui primi
 # secondi di acquisizione reale e regolare se necessario.
-plot.setYRange(-201, 200)
+plot.setYRange(-2000, 2001)
 plot.setXRange(0, FINESTRA / FS)
 plot.getAxis('bottom').setPen('w')
 plot.getAxis('left').setPen('w')
@@ -98,21 +98,21 @@ ticks_x_minor = [(x, '') for x in np.arange(0, durata_totale + 0.1, 0.04)]
 asse_x.setTicks([ticks_x_major, ticks_x_minor])
 
 # MODIFICA: tick coerenti con il nuovo range ±200
-ticks_y_major = [(y, str(y)) for y in np.arange(-201, 200, 20)]
-ticks_y_minor = [(y, '') for y in np.arange(-201, 200, 4)]
+ticks_y_major = [(y, str(y)) for y in np.arange(-2000, 2001, 200)]
+ticks_y_minor = [(y, '') for y in np.arange(-2000, 2000, 40)]
 asse_y.setTicks([ticks_y_major, ticks_y_minor])
 
 plot.showGrid(x=True, y=True, alpha=0.4)
 curva = plot.plot(pen=pg.mkPen('g', width=1.5)) 
 
-testo_bpm = pg.TextItem(text="BPM: --", color=(0, 255, 0), anchor=(0, 0))
+testo_bpm = pg.TextItem(text="BPM: -- ", color=(0, 255, 0), anchor=(0, 0))
 font = testo_bpm.textItem.font()
-font.setPointSize(14)
+font.setPointSize(30)
 font.setBold(True)
 testo_bpm.setFont(font)
 # MODIFICA: posizione verticale del testo BPM riportata dentro al
 # nuovo range visibile (prima era 1400, fuori scala col nuovo ±500)
-testo_bpm.setPos(0.1, 150)
+testo_bpm.setPos(0.1, 1900)
 plot.addItem(testo_bpm)
 
 # --- MOTORE DI AGGIORNAMENTO ---
