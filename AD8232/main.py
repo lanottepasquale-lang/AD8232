@@ -1,4 +1,4 @@
-voglio mantenere il mio codice originale, ma ho notato che non tutti i battiti vengono registrati correttamente... perchè ?  import sys
+import sys
 import uselect
 import time
 import network
