@@ -8,3 +8,5 @@ matplotlib
 joblib
 pyqtgraph
 PyQt5
+pyserial
+pandas
